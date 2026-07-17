@@ -1,46 +1,78 @@
-from torch.utils.data import Dataset
-import torch
+import chess
 import random
+import torch
 
 
-piece_to_channel = {
-    "P": 0, "N": 1, "B": 2, "R": 3, "Q":  4, "K":  5,  # Белые
-    "p": 6, "n": 7, "b": 8, "r": 9, "q": 10, "k": 11,  # Черные
+_piece = {
+    "P": [1], "N": [2], "B": [3], "R": [4],  "Q": [5],  "K": [6],
+    "p": [7], "n": [8], "b": [9], "r": [10], "q": [11], "k": [12],
+    "1": [0],
+    "2": [0, 0],
+    "3": [0, 0, 0],
+    "4": [0, 0, 0, 0],
+    "5": [0, 0, 0, 0, 0],
+    "6": [0, 0, 0, 0, 0, 0],
+    "7": [0, 0, 0, 0, 0, 0, 0],
+    "8": [0, 0, 0, 0, 0, 0, 0, 0],
 }
-piece_max_num = {
-    "P": 8, "N": 2, "B": 2, "R": 2, "Q": 1, "K": 1,  # Белые
-    "p": 8, "n": 2, "b": 2, "r": 2, "q": 1, "k": 1,  # Черные
-}
 
-class ChessDataset(Dataset):
-    def __init__(self, size, dtype = torch.float64, device = "cpu"):
-        self.size = size
-        self.dtype = dtype
-        self.device = device
+class ChessPlaying:
+    def __init__(self, model, batch=64):
+        self.model = model
+        self.batch = batch
 
-    def __len__(self):
-        return self.size
+    def __call__(self):
+        self.model.train()
+        white_win, black_win = [], []
+
+        while (len(white_win) >= self.batch // 2) and (len(black_win) >= self.batch // 2):
+            board = chess.Board()
+            history = []
+
+            while not board.is_game_over():
+                if board.is_seventyfive_moves(): break
+                elif board.fullmove_number() >= 200: break
+
+                if board.turn == chess.WHITE:
+                    move = random.choice(board.legal_moves)
+                    board.push(move)
+
+                else:
+                    board_ten = self._board_to_tensor(board.board_fen())
+                    ctx = self._board_to_ctx(board)
+                    out = self.model(board_ten, ctx)
+                    history.append(out)
+                    move = self._ten_to_uci(out)
+                    board.push(move)
+
+            outcome = board.outcome()
+            if outcome is None:
+                continue
+            elif outcome.winner == chess.BLACK:
+                black_win += history #переполнение масивов при многократном проигрыше или выигрыше
+            else:
+                white_win += history
+
+        white_win = random.choices(white_win, k=self.batch // 2)
+        black_win = random.choices(black_win, k=self.batch // 2)
+
+        return white_win, black_win
+
+    def _board_to_tensor(self, fen):
+        fen = fen.replace("/", "")
+        board = [*_piece[x] for x in fen]
+        board = torch.tensor(board, dtype=torch.long)
+
+        return board.view(8, 8)
+
+    def _board_to_ctx(self, board):
+        fifty_moves = board.halfmove_clock / 150.0  # правило 75 ходов
+        kingside = 1.0 if board.has_kingside_castling_rights() else 0.0  # рокировка в короткую сторону
+        queenside = 1.0 if board.has_queenside_castling_rights() else 0.0  # рокировка в длинную сторону
+        ctx = torch.tensor([fifty_moves, kingside, queenside,
+                            random.random(), random.random()],
+                            dtype=torch.float64)
+        
+        return ctx
     
-    def __getitem__(self, index):
-        board = [] 
-        rand_pos = self._random_position()
-
-        for piece in ("P", "N", "B", "R", "Q", "K", "p", "n", "b", "r", "q", "k"):
-            piece_board = torch.zeros(8, 8, dtype=self.dtype, device=self.device)
-
-            for _ in range(random.randint(0, piece_max_num[piece])):
-                x, y = rand_pos.pop()
-                piece_board[x, y] = 1.0
-
-            board.append(piece_board)
-
-        board = torch.stack(board)
-
-        return board, board
-
-
-    def _random_position(self):
-        pos = [(x, y) for x in range(8) for y in range(8)]
-        random.shuffle(pos)
-
-        return pos
+    def _ten_to_uci(self, ten): pass

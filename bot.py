@@ -18,19 +18,19 @@ class Plankton(nn.Module):
         )
         self.from_x = nn.Sequential(
             nn.Linear(64, 8, bias=True, dtype=torch.float64),
-            nn.LogSoftmax(-1),
+            nn.Softmax(-1),
         )
         self.from_y = nn.Sequential(
             nn.Linear(64, 8, bias=True, dtype=torch.float64),
-            nn.LogSoftmax(-1),
+            nn.Softmax(-1),
         )
         self.to_x = nn.Sequential(
             nn.Linear(64, 8, bias=True, dtype=torch.float64),
-            nn.LogSoftmax(-1),
+            nn.Softmax(-1),
         )
         self.to_y = nn.Sequential(
             nn.Linear(64, 8, bias=True, dtype=torch.float64),
-            nn.LogSoftmax(-1),
+            nn.Softmax(-1),
         )
 
     def forward(self, board, context):  # board size [8, 8]  context size [5]
@@ -46,7 +46,7 @@ class Plankton(nn.Module):
             self.from_x(x), self.from_y(x),   # UCI кодировка 
             self.to_x(x),   self.to_y(x),
         ]
-        move = torch.stack(move, -1)  # move size [8, 4]
+        move = torch.stack(move)  # move size [4, 8]
 
         return move
     

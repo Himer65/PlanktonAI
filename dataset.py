@@ -15,22 +15,21 @@ _piece = {
     "7": [0, 0, 0, 0, 0, 0, 0],
     "8": [0, 0, 0, 0, 0, 0, 0, 0],
 }
-_num_to_sym = {
-    1: "a", 2: "b", 3: "c", 4: "d",
-    5: "e", 6: "f", 7: "g", 8: "h",
+_sym_to_idx = {
+    "a": 0, "b": 1, "c": 2, "d": 3,
+    "e": 4, "f": 5, "g": 6, "h": 7,
 }
 
 class ChessPlaying:
-    def __init__(self, model, batch=64):
+    def __init__(self, model, batch=32):
         self.model = model
         self.batch = batch
 
     def __call__(self):
         self.model.train()
         white_win, black_win = [], []
-        i=0
 
-        while (len(white_win) <= self.batch // 2) or (len(black_win) <= self.batch // 2):
+        while (len(white_win) < self.batch) or (len(black_win) < self.batch):
             board = chess.Board()
             history = []
             
@@ -55,15 +54,14 @@ class ChessPlaying:
             if outcome is None:
                 continue
             elif outcome.winner is chess.BLACK:
-                black_win += history #переполнение масивов при многократном проигрыше или выигрыше
+                black_win += history
+                black_win = black_win[-self.batch:]
             else:
                 white_win += history
-
-            i += 1
-            print(i, len(white_win), len(black_win), outcome.winner is chess.BLACK, outcome.winner is chess.WHITE, (len(white_win) <= self.batch // 2) or (len(black_win) <= self.batch // 2))
+                white_win = white_win[-self.batch:]
         
-        white_win = random.choices(white_win, k=self.batch // 2)
-        black_win = random.choices(black_win, k=self.batch // 2)
+        white_win = random.choices(white_win, k=self.batch)
+        black_win = random.choices(black_win, k=self.batch)
 
         return white_win, black_win
 
@@ -101,5 +99,11 @@ class ChessPlaying:
         return max_move
 
     def _move_to_ten(self, move):
-        return torch.zeros(4, 8, dtype=torch.float64)
+        move = str(move)
+        ten = torch.zeros(4, 8, dtype=torch.float64)
+        ten[0, _sym_to_idx[move[0]]] = 1.0
+        ten[1,     int(move[1]) - 1] = 1.0
+        ten[2, _sym_to_idx[move[2]]] = 1.0
+        ten[3,     int(move[3]) - 1] = 1.0
 
+        return ten

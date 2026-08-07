@@ -63,7 +63,7 @@ class ChessPlaying:
         white_win = random.choices(white_win, k=self.batch)
         black_win = random.choices(black_win, k=self.batch)
 
-        return white_win, black_win
+        return torch.stack(white_win), torch.stack(black_win)
 
     def _board_to_tensor(self, fen):
         fen = fen.replace("/", "")

@@ -21,51 +21,50 @@ _sym_to_idx = {
 }
 
 class ChessPlaying:
-    def __init__(self, model, batch=32):
+    def __init__(self, model):
         self.model = model
-        self.batch = batch
 
     def __call__(self):
-        self.model.train()
-        white_win, black_win = [], []
+        while True:
+            moves, outcome = self.go_to_game()
 
-        while (len(white_win) < self.batch) or (len(black_win) < self.batch):
-            board = chess.Board()
-            history = []
-            
-            while not board.is_game_over():
-                if board.is_seventyfive_moves(): break
-                elif board.fullmove_number >= 200: break
-
-                if board.turn == chess.WHITE:
-                    move = random.choice(list(board.legal_moves))
-                    board.push(move)
-
-                else:
-                    board_ten = self._board_to_tensor(board.board_fen())
-                    ctx = self._board_to_ctx(board)
-                    out = self.model(board_ten, ctx)
-                    history.append(out)
-                    move = self._ten_to_move(out, list(board.legal_moves))
-                    board.push(move)
-
-            outcome = board.outcome()
-            
             if outcome is None:
                 continue
+
             elif outcome.winner is chess.BLACK:
-                black_win += history
-                black_win = black_win[-self.batch:]
+                return moves,  1
+                        
+            elif outcome.winner is chess.WHITE:
+                return moves, -1
+
             else:
-                white_win += history
-                white_win = white_win[-self.batch:]
+                return moves, 0
+
+    def go_to_game(self):
+        self.model.train()
+        board = chess.Board()
+        history_moves = []
+
+        while not board.is_game_over():
+            if board.is_seventyfive_moves(): break                
+            elif board.fullmove_number >= 200: break
         
-        white_win = random.choices(white_win, k=self.batch)
-        black_win = random.choices(black_win, k=self.batch)
+            if board.turn == chess.WHITE:
+                move = random.choice(list(board.legal_moves))
+                board.push(move)
+        
+            else:
+                board_ten = self.board_to_tensor(board.board_fen())
+                ctx = self.board_to_ctx(board)
+                out = self.model(board_ten, ctx)
+                history_moves.append(out)
+        
+                move = self.ten_to_move(out, list(board.legal_moves))
+                board.push(move)
 
-        return torch.stack(white_win), torch.stack(black_win)
-
-    def _board_to_tensor(self, fen):
+        return torch.stack(history_moves), board.outcome() 
+    
+    def board_to_tensor(self, fen):
         fen = fen.replace("/", "")
         board = []
         for x in fen:
@@ -74,7 +73,7 @@ class ChessPlaying:
 
         return board.view(8, 8)
 
-    def _board_to_ctx(self, board):
+    def board_to_ctx(self, board):
         fifty_moves = board.halfmove_clock / 150.0  # правило 75 ходов
         kingside = 1.0 if board.has_kingside_castling_rights(chess.BLACK) else 0.0  # рокировка в короткую сторону
         queenside = 1.0 if board.has_queenside_castling_rights(chess.BLACK) else 0.0  # рокировка в длинную сторону
@@ -85,12 +84,12 @@ class ChessPlaying:
         return ctx
     
     @torch.no_grad()
-    def _ten_to_move(self, ten, legal_moves):
+    def ten_to_move(self, ten, legal_moves):
         L = 1000
         max_move = None
 
         for move in legal_moves:
-            move_ten = self._move_to_ten(move)
+            move_ten = self.move_to_ten(move)
             l = ((ten - move_ten) ** 2).mean()
             if L > l: 
                 L = l
@@ -98,7 +97,7 @@ class ChessPlaying:
 
         return max_move
 
-    def _move_to_ten(self, move):
+    def move_to_ten(self, move):
         move = str(move)
         ten = torch.zeros(4, 8, dtype=torch.float64)
         ten[0, _sym_to_idx[move[0]]] = 1.0

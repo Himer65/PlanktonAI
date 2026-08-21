@@ -26,24 +26,25 @@ class ChessPlaying:
 
     def __call__(self):
         while True:
-            moves, outcome = self.go_to_game()
+            moves, indices, outcome = self.go_to_game()
 
             if outcome is None:
                 continue
 
             elif outcome.winner is chess.BLACK:
-                return moves,  1
+                return moves, indices,  1
                         
             elif outcome.winner is chess.WHITE:
-                return moves, -1
+                return moves, indices, -1
 
             else:
-                return moves, 0
+                return moves, indices,  0
 
     def go_to_game(self):
         self.model.train()
         board = chess.Board()
         history_moves = []
+        history_indices = []
 
         while not board.is_game_over():
             if board.is_seventyfive_moves(): break                
@@ -62,7 +63,11 @@ class ChessPlaying:
                 move = self.ten_to_move(out, list(board.legal_moves))
                 board.push(move)
 
-        return torch.stack(history_moves), board.outcome() 
+                move_ten = self.move_to_ten(move)   
+                idx = move_ten.argmax(dim=1)
+                history_indices.append(idx)
+
+        return torch.stack(history_moves), torch.stack(history_indices), board.outcome() 
     
     def board_to_tensor(self, fen):
         fen = fen.replace("/", "")
@@ -77,25 +82,24 @@ class ChessPlaying:
         fifty_moves = board.halfmove_clock / 150.0  # правило 75 ходов
         kingside = 1.0 if board.has_kingside_castling_rights(chess.BLACK) else 0.0  # рокировка в короткую сторону
         queenside = 1.0 if board.has_queenside_castling_rights(chess.BLACK) else 0.0  # рокировка в длинную сторону
-        ctx = torch.tensor([fifty_moves, kingside, queenside,
-                            random.random(), random.random()],
-                            dtype=torch.float64)
+        ctx = torch.tensor([fifty_moves, kingside, queenside], dtype=torch.float64)
         
         return ctx
-    
+
     @torch.no_grad()
     def ten_to_move(self, ten, legal_moves):
-        L = 1000
-        max_move = None
+        best_move = None
+        best_prob = -float("inf")
 
         for move in legal_moves:
-            move_ten = self.move_to_ten(move)
-            l = ((ten - move_ten) ** 2).mean()
-            if L > l: 
-                L = l
-                max_move = move
+            move_ten = self.move_to_ten(move)          
+            # вероятность этого хода = произведение вероятностей каждой координаты
+            prob = (ten * move_ten).sum(dim=1).prod().item()
+            if prob > best_prob:
+                best_prob = prob
+                best_move = move
 
-        return max_move
+        return best_move
 
     def move_to_ten(self, move):
         move = str(move)

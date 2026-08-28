@@ -1,4 +1,5 @@
 import chess
+import copy
 import random
 import torch
 
@@ -20,29 +21,39 @@ _sym_to_idx = {
     "e": 4, "f": 5, "g": 6, "h": 7,
 }
 
-class ChessPlaying:
-    def __init__(self, model):
-        self.model = model
+class SelfPlayENV:
+    def __init__(self, model, num_self_play=50):
+        self.trainee = model
+        self.enemy = copy.deepcopy(model)
+        self.num_self_play = num_self_play
+        self._num_games = 0
 
     def __call__(self):
         while True:
-            moves, indices, outcome = self.go_to_game()
+            color = random.choice([chess.WHITE, chess.BLACK])
+            moves, indices, outcome = self.go_to_game(color)
 
-            if outcome is None:
-                continue
+            if outcome is None: continue
 
-            elif outcome.winner is chess.BLACK:
-                return moves, indices,  1
-                        
-            elif outcome.winner is chess.WHITE:
+            self._num_games = self._num_games  + 1
+            if self._num_games == self.num_self_play:
+                self.enemy = copy.deepcopy(self.trainee)
+                self.enemy.eval()
+                self._num_games = 0
+
+            if outcome.winner is color:
                 return moves, indices, -1
+                        
+            elif outcome.winner is not None:
+                return moves, indices,  1
 
             else:
                 return moves, indices,  0
 
-    def go_to_game(self):
-        self.model.train()
+    def go_to_game(self, color):
         board = chess.Board()
+        self.trainee.train()
+        self.enemy.eval()
         history_moves = []
         history_indices = []
 
@@ -50,24 +61,30 @@ class ChessPlaying:
             if board.is_seventyfive_moves(): break                
             elif board.fullmove_number >= 200: break
         
-            if board.turn == chess.WHITE:
-                move = random.choice(list(board.legal_moves))
-                board.push(move)
+            if board.turn == color:
+                _ = self.move_model(self.enemy, board)
         
             else:
-                board_ten = self.board_to_tensor(board.board_fen())
-                ctx = self.board_to_ctx(board)
-                out = self.model(board_ten, ctx)
-                history_moves.append(out)
+                probs, move_idx = self.move_model(self.trainee, board)
+
+                history_moves.append(probs)
+                history_indices.append(move_idx)
+
+
+        return history_moves, history_indices, board.outcome() 
+
+    def move_model(self, model, board):
+        board_ten = self.board_to_tensor(board.board_fen())
+        ctx = self.board_to_ctx(board)
+        out = model(board_ten, ctx)
         
-                move = self.ten_to_move(out, list(board.legal_moves))
-                board.push(move)
-
-                move_ten = self.move_to_ten(move)   
-                idx = move_ten.argmax(dim=1)
-                history_indices.append(idx)
-
-        return torch.stack(history_moves), torch.stack(history_indices), board.outcome() 
+        probs, legal_moves = self.get_action_probs(board, out)
+        
+        move_idx = torch.multinomial(probs, 1).item()
+        move = legal_moves[move_idx]
+        board.push(move)
+        
+        return probs, move_idx
     
     def board_to_tensor(self, fen):
         fen = fen.replace("/", "")
@@ -79,34 +96,44 @@ class ChessPlaying:
         return board.view(8, 8)
 
     def board_to_ctx(self, board):
-        fifty_moves = board.halfmove_clock / 150.0  # правило 75 ходов
-        kingside = 1.0 if board.has_kingside_castling_rights(chess.BLACK) else 0.0  # рокировка в короткую сторону
-        queenside = 1.0 if board.has_queenside_castling_rights(chess.BLACK) else 0.0  # рокировка в длинную сторону
-        ctx = torch.tensor([fifty_moves, kingside, queenside], dtype=torch.float64)
-        
+        # правило 50 ходов
+        fifty_moves = board.halfmove_clock / 50.0
+
+        # права рокировки для белых и чёрных
+        bk = 1.0 if board.has_kingside_castling_rights(chess.BLACK) else 0.0
+        bq = 1.0 if board.has_queenside_castling_rights(chess.BLACK) else 0.0
+        wk = 1.0 if board.has_kingside_castling_rights(chess.WHITE) else 0.0
+        wq = 1.0 if board.has_queenside_castling_rights(chess.WHITE) else 0.0
+
+        # очерёдность хода
+        turn = 1.0 if board.turn == chess.BLACK else -1.0
+
+        # взятие на проходе (клетка назначения, если нет 0)
+        ep = board.ep_square
+        ep = ep / 63.0 if ep is not None else 0.0
+
+        # размер [7]
+        ctx = torch.tensor([fifty_moves, bk, bq, wk, wq, turn, ep])
         return ctx
+    
+    def get_move_logits(self, out, move):
+        from_x = _sym_to_idx[chess.square_name(move.from_square)[0]]
+        from_y = chess.square_rank(move.from_square)
+        to_x   = _sym_to_idx[chess.square_name(move.to_square)[0]]
+        to_y   = chess.square_rank(move.to_square)
+    
+        log_p = (out[0, from_x].log() +
+                 out[1, from_y].log() +
+                 out[2, to_x].log() +
+                 out[3, to_y].log())
+        return log_p
 
-    @torch.no_grad()
-    def ten_to_move(self, ten, legal_moves):
-        best_move = None
-        best_prob = -float("inf")
+    def get_action_probs(self, board, out):
+        legal_moves = list(board.legal_moves)
 
-        for move in legal_moves:
-            move_ten = self.move_to_ten(move)          
-            # вероятность этого хода = произведение вероятностей каждой координаты
-            prob = (ten * move_ten).sum(dim=1).prod().item()
-            if prob > best_prob:
-                best_prob = prob
-                best_move = move
+        if not legal_moves: return torch.tensor([]), []
 
-        return best_move
+        logits = torch.stack([self.get_move_logits(out, m) for m in legal_moves])
+        probs = torch.softmax(logits, dim=-1)
 
-    def move_to_ten(self, move):
-        move = str(move)
-        ten = torch.zeros(4, 8, dtype=torch.float64)
-        ten[0, _sym_to_idx[move[0]]] = 1.0
-        ten[1,     int(move[1]) - 1] = 1.0
-        ten[2, _sym_to_idx[move[2]]] = 1.0
-        ten[3,     int(move[3]) - 1] = 1.0
-
-        return ten
+        return probs, legal_moves

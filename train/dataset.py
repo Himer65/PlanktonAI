@@ -62,7 +62,7 @@ class SelfPlayENV:
             elif board.fullmove_number >= 200: break
         
             if board.turn == color:
-                _ = self.move_model(self.enemy, board)
+                self.move_model(self.enemy, board)
         
             else:
                 probs, move_idx = self.move_model(self.trainee, board)

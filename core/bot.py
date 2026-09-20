@@ -13,38 +13,36 @@ class Plankton(nn.Module):
         import copy
         self.emb = nn.Embedding(13, 2)
 
-        conv_layer = nn.Sequential(
-            nn.Conv2d(conv_hidden_chanel, conv_hidden_chanel, kernel_size=3, padding=1),
-            nn.LayerNorm([conv_hidden_chanel, 8, 8]),
-            nn.ReLU(),
-        )
         self.conv = nn.Sequential(
             nn.Conv2d(2, conv_hidden_chanel, kernel_size=3, padding=1),
             nn.LayerNorm([conv_hidden_chanel, 8, 8]),
             nn.ReLU(),
 
-            *[copy.deepcopy(conv_layer) for _ in range(num_conv_layer)],
+          *[nn.Sequential(
+                nn.Conv2d(conv_hidden_chanel, conv_hidden_chanel, kernel_size=3, padding=1),
+                nn.LayerNorm([conv_hidden_chanel, 8, 8]),
+                nn.ReLU(),
+            ) for _ in range(num_conv_layer)],
 
             nn.Conv2d(conv_hidden_chanel, conv_hidden_chanel, kernel_size=3),
             nn.LayerNorm([conv_hidden_chanel, 6, 6]),
             nn.ReLU(),
-
+            
             nn.Conv2d(conv_hidden_chanel, conv_hidden_chanel, kernel_size=3),
             nn.LayerNorm([conv_hidden_chanel, 4, 4]),
             nn.ReLU(),
         )
 
-        brain_layer = nn.Sequential(
-            nn.Linear(brain_hidden_dim, brain_hidden_dim),
-            nn.LayerNorm([brain_hidden_dim]),
-            nn.ReLU(),
-        )
         self.brain = nn.Sequential(
             nn.Linear(conv_hidden_chanel * 16 + 7, brain_hidden_dim),
             nn.LayerNorm(brain_hidden_dim),
             nn.ReLU(),
-
-            *[copy.deepcopy(brain_layer) for _ in range(num_brain_layer)]
+        
+          *[nn.Sequential(
+                nn.Linear(brain_hidden_dim, brain_hidden_dim),
+                nn.LayerNorm([brain_hidden_dim]),
+                nn.ReLU(),
+            ) for _ in range(num_brain_layer)],
         )
 
         self.from_x = nn.Sequential(

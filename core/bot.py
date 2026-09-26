@@ -4,25 +4,16 @@ from torch import nn
 #квантизация прунинг
 class Plankton(nn.Module):
     def __init__(self,
-        num_conv_layer,
         conv_hidden_chanel,
-        num_brain_layer,
         brain_hidden_dim,
     ):
         super().__init__()
-        import copy
         self.emb = nn.Embedding(13, 2)
 
         self.conv = nn.Sequential(
             nn.Conv2d(2, conv_hidden_chanel, kernel_size=3, padding=1),
             nn.LayerNorm([conv_hidden_chanel, 8, 8]),
             nn.ReLU(),
-
-          *[nn.Sequential(
-                nn.Conv2d(conv_hidden_chanel, conv_hidden_chanel, kernel_size=3, padding=1),
-                nn.LayerNorm([conv_hidden_chanel, 8, 8]),
-                nn.ReLU(),
-            ) for _ in range(num_conv_layer)],
 
             nn.Conv2d(conv_hidden_chanel, conv_hidden_chanel, kernel_size=3),
             nn.LayerNorm([conv_hidden_chanel, 6, 6]),
@@ -34,15 +25,9 @@ class Plankton(nn.Module):
         )
 
         self.brain = nn.Sequential(
-            nn.Linear(conv_hidden_chanel * 16 + 7, brain_hidden_dim),
+            nn.Linear(conv_hidden_chanel * 4 * 4 + 7, brain_hidden_dim),
             nn.LayerNorm(brain_hidden_dim),
             nn.ReLU(),
-        
-          *[nn.Sequential(
-                nn.Linear(brain_hidden_dim, brain_hidden_dim),
-                nn.LayerNorm([brain_hidden_dim]),
-                nn.ReLU(),
-            ) for _ in range(num_brain_layer)],
         )
 
         self.from_x = nn.Sequential(
@@ -62,7 +47,7 @@ class Plankton(nn.Module):
             nn.Softmax(dim=-1),
         )
 
-    def forward(self, board, context, move_hist=None):
+    def forward(self, board):
         board = self.emb(board).permute(2, 0, 1)  # [2, 8, 8]
         x = self.conv(board).view(-1)  # [151]
         x = torch.cat([x, context], -1)  # [151]

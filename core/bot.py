@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 
+
 #квантизация прунинг
 class Plankton(nn.Module):
     def __init__(self,
@@ -47,11 +48,11 @@ class Plankton(nn.Module):
             nn.Softmax(dim=-1),
         )
 
-    def forward(self, board):
+    def forward(self, board, context):
         board = self.emb(board).permute(2, 0, 1)  # [2, 8, 8]
-        x = self.conv(board).view(-1)  # [151]
-        x = torch.cat([x, context], -1)  # [151]
-        x = self.brain(x)  # [32]
+        x = self.conv(board).view(-1)
+        x = torch.cat([x, context], -1)
+        x = self.brain(x)
         move = torch.stack([
             self.from_x(x),
             self.from_y(x),

@@ -78,8 +78,8 @@ class ChessData(Dataset):
         return len(self.board)
 
     def __getitem__(self, idx):
-        board = self.board[idx]
-        ctx   = self.ctx[idx]
-        move  = self.move[idx]
+        board = self.board.iloc[idx]
+        ctx   = self.ctx.iloc[idx]
+        move  = self.move.iloc[idx]
 
         return board, ctx, move

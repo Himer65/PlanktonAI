@@ -49,15 +49,15 @@ class Plankton(nn.Module):
         )
 
     def forward(self, board, context):
-        board = self.emb(board).permute(2, 0, 1)  # [2, 8, 8]
-        x = self.conv(board).view(-1)
+        board = self.emb(board).permute(0, 3, 1, 2)  # [B, 2, 8, 8]
+        x = self.conv(board).flatten(1)
         x = torch.cat([x, context], -1)
         x = self.brain(x)
         move = torch.stack([
             self.from_x(x),
             self.from_y(x),
             self.to_x(x),
-            self.to_y(x)
-        ])  # [4, 8]
+            self.to_y(x),
+        ], dim=1,)  # [4, 8]
 
         return move

@@ -1,0 +1,8 @@
+/__pycache__/
+/core/__pycache__/
+/train/__pycache__/
+
+/data/chess-evaluations.zip
+/data/chessData.csv
+/data/random_evals.csv
+/data/tactic_evals.csv
